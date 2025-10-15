@@ -1,12 +1,22 @@
 from fastapi import FastAPI, UploadFile, File, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import pandas as pd
 import os
 
 app = FastAPI(title='Belgachia Health Point Billing AI')
+
+# Enable CORS for frontend and external tools
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Serve frontend build (static)
 FRONTEND_DIR = os.getenv('FRONTEND_DIR', '/workspace/frontend')
