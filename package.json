@@ -1,0 +1,13 @@
+{
+  "name": "belgachia-health-point-billing-ai",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@google-cloud/vertexai": "^1.7.0"
+  },
+  "scripts": {
+    "build": "echo 'No frontend build step; served via CDN React'",
+    "test": "echo 'No tests yet'"
+  }
+}
