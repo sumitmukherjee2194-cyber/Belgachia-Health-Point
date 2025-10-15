@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'https://cdn.skypack.dev/react';
-import ReactDOM from 'https://cdn.skypack.dev/react-dom';
+const { useState, useEffect } = React;
 
 function Dashboard() {
   const [insights, setInsights] = useState([]);
@@ -57,4 +56,5 @@ function Dashboard() {
   );
 }
 
-ReactDOM.render(<Dashboard />, document.getElementById('root'));
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<Dashboard />);
