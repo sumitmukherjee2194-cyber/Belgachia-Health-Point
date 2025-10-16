@@ -1,0 +1,6 @@
+InvoiceNo,Amount,GST,Qty,Item
+A1,1000,50,2,Paracetamol
+A2,-200,10,1,Ibuprofen
+A2,0,0,1,Ibuprofen
+A3,25000,1200,5,Insulin
+A4,300,20,-1,Vitamin C
