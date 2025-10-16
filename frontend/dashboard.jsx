@@ -18,6 +18,7 @@ function Dashboard() {
   const [uploadResult, setUploadResult] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [anomalySummary, setAnomalySummary] = useState(null);
+  const chartsRef = React.useRef({});
 
   const authHeaders = () => token ? { 'Authorization': `Bearer ${token}` } : {};
 
@@ -106,6 +107,35 @@ function Dashboard() {
     }
   }, [token]);
 
+  // Render charts when analytics changes
+  useEffect(() => {
+    if (!analytics) return;
+    const ctx1 = document.getElementById('chartBills');
+    const ctx2 = document.getElementById('chartTop');
+    if (ctx1) {
+      if (chartsRef.current.chart1) chartsRef.current.chart1.destroy();
+      const vals = [
+        Number(analytics?.summary?.total_amount || 0),
+        Number(analytics?.summary?.avg_amount || 0),
+        Number(analytics?.kpis?.p95_amount || 0),
+      ];
+      chartsRef.current.chart1 = new Chart(ctx1, {
+        type: 'bar',
+        data: { labels: ['Total', 'Avg', 'P95'], datasets: [{ label: 'Amounts', data: vals, backgroundColor: ['#10b981', '#f59e0b', '#8b5cf6'] }] },
+        options: { responsive: true, plugins: { legend: { display: false } } }
+      });
+    }
+    if (ctx2) {
+      if (chartsRef.current.chart2) chartsRef.current.chart2.destroy();
+      const items = analytics?.top_items || [];
+      chartsRef.current.chart2 = new Chart(ctx2, {
+        type: 'doughnut',
+        data: { labels: items.map(i=>i.name), datasets: [{ data: items.map(i=>i.amount), backgroundColor: ['#3b82f6','#22c55e','#ef4444','#f59e0b','#8b5cf6'] }] },
+        options: { responsive: true }
+      });
+    }
+  }, [analytics]);
+
   if (!token) {
     return (
       <div className='p-6 bg-gray-100 min-h-screen flex items-center justify-center'>
@@ -146,6 +176,17 @@ function Dashboard() {
         <div className='bg-white p-4 rounded-2xl shadow'><h2 className='text-lg font-semibold text-gray-700'>Avg Amount</h2><p className='text-2xl font-bold text-yellow-600'>₹{Number(avgAmount).toLocaleString('en-IN')}</p></div>
       </div>
 
+      <div className='grid grid-cols-1 md:grid-cols-2 gap-4 mb-6'>
+        <div className='bg-white p-4 rounded-2xl shadow'>
+          <h2 className='font-semibold text-gray-800 mb-2'>Bill Amounts</h2>
+          <canvas id='chartBills' height='130'></canvas>
+        </div>
+        <div className='bg-white p-4 rounded-2xl shadow'>
+          <h2 className='font-semibold text-gray-800 mb-2'>Top Items</h2>
+          <canvas id='chartTop' height='130'></canvas>
+        </div>
+      </div>
+
       <div className='grid grid-cols-1 md:grid-cols-3 gap-4 mb-6'>
         <div className='bg-white p-4 rounded-2xl shadow'><h2 className='text-lg font-semibold text-gray-700'>P95 Bill</h2><p className='text-2xl font-bold text-purple-700'>₹{Number(kpis.p95_amount || 0).toLocaleString('en-IN')}</p></div>
         <div className='bg-white p-4 rounded-2xl shadow'><h2 className='text-lg font-semibold text-gray-700'>Median Bill</h2><p className='text-2xl font-bold text-indigo-700'>₹{Number(kpis.p50_amount || 0).toLocaleString('en-IN')}</p></div>
@@ -158,6 +199,10 @@ function Dashboard() {
           <input type='file' accept='.csv' onChange={e=>setFile(e.target.files?.[0] || null)} className='border p-2 rounded bg-white' />
           <input className='border p-2 rounded' placeholder='data type (e.g., billing, pharmacy)' value={dataType} onChange={e=>setDataType(e.target.value)} />
           <button onClick={handleUpload} className='bg-emerald-600 text-white px-4 py-2 rounded'>Upload</button>
+          <div className='flex gap-2'>
+            <a className='bg-gray-700 text-white px-3 py-2 rounded' href='/export?format=csv' target='_blank' rel='noreferrer' onClick={(e)=>{ if(!token){ e.preventDefault(); } }}>Export CSV</a>
+            <a className='bg-gray-700 text-white px-3 py-2 rounded' href='/export?format=xlsx' target='_blank' rel='noreferrer' onClick={(e)=>{ if(!token){ e.preventDefault(); } }}>Export XLSX</a>
+          </div>
         </div>
         {uploadResult && (
           <p className='text-sm text-gray-600 mt-2'>Uploaded {uploadResult.records_uploaded} records to {uploadResult.data_type}.</p>

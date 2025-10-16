@@ -48,12 +48,19 @@ See `.env.example`:
 - `FRONTEND_DIR` path to serve static React files
 - `UPLOAD_DIR` CSV save location
 - `JWT_SECRET`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`
+- `PASSWORD_SALT` for hashing demo users
 - `OPENAI_API_KEY` (optional), `OPENAI_MODEL`
+- `ALLOWED_ORIGINS` to restrict CORS in production
 
 ## Bulk CSV Upload (Marg)
 - Export CSV from Marg
 - Use UI “Bulk CSV Upload” → choose file and set data type
 - Backend stores to `UPLOAD_DIR` and computes quick KPIs
+
+## Analytics & Charts
+- Charts powered by Chart.js (included via CDN)
+- Manager KPIs: p95, median, large bill count; Top items doughnut chart
+- Export buttons allow CSV/XLSX via `/export` endpoint (auth required)
 
 ## Development
 - Install Python 3.11+
@@ -69,3 +76,4 @@ See `.env.example`:
 ## Notes
 - If `OPENAI_API_KEY` is not set, insight/query endpoints return heuristic suggestions
 - CORS is open by default; tighten for production
+- Keep API keys in environment variables; never commit secrets

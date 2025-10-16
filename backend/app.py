@@ -17,9 +17,11 @@ import base64
 app = FastAPI(title='Belgachia Health Point Billing AI')
 
 # Enable CORS for frontend and external tools
+ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', '*')
+allow_origins = [o.strip() for o in ALLOWED_ORIGINS.split(',')] if ALLOWED_ORIGINS else ['*']
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -247,7 +249,15 @@ async def upload_csv(
     ai_text = None
     prompt = None
     try:
-        prompt = f"Summarize these billing data anomalies and propose 3 fixes: {anomalies}"
+        # Create a concise AI prompt
+        short = {
+            'anomalies': anomalies.get('anomalies', [])[:6],
+            'suggestions': anomalies.get('suggestions', [])[:6]
+        }
+        prompt = (
+            "Given CSV anomaly findings, produce: 1) 2-line summary, 2) 3 prioritized fixes, 3) a short risk note.\n"
+            f"Findings: {short}"
+        )
         ai_text = _ai_insight_with_openai(prompt)
     except Exception:
         ai_text = None
@@ -291,10 +301,29 @@ async def generate_insight(request: InsightRequest, user: User = Depends(require
     prompt = f"Analyze {request.data_scope} billing data for {request.data_period} and give 3 actionable insights."
     text = _ai_insight_with_openai(prompt)
     if text:
-        recs = [r.strip("- •\n ") for r in text.split('\n') if r.strip()][:5]
+        lines = [ln.strip('-• \t') for ln in text.split('\n') if ln.strip()]
+        recs = lines[:5] if lines else [text]
         return {'insight_summary': f'Insights for {request.data_period} ({request.data_scope})', 'recommendations': recs}
     # Fallback
     return {'insight_summary': f'Insights for {request.data_period} ({request.data_scope})','recommendations': ['Improve stock tracking','Send payment reminders','Review high-GST items']}
+
+
+@app.get('/export')
+async def export_data(format: str = Query('csv', pattern='^(csv|xlsx)$'), user: User = Depends(require_roles(["Admin", "Manager", "Pharmacist"]))):
+    if not _last_upload_path or not os.path.exists(_last_upload_path):
+        raise HTTPException(status_code=400, detail='No uploaded data to export')
+    df = pd.read_csv(_last_upload_path)
+    if format == 'csv':
+        return FileResponse(_last_upload_path, media_type='text/csv', filename=os.path.basename(_last_upload_path))
+    # xlsx export
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+            df.to_excel(tmp.name, index=False)
+            tmp.flush()
+            return FileResponse(tmp.name, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename='export.xlsx')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Export failed: {e}')
 
 @app.post('/auto-fix')
 async def auto_fix(request: FixRequest, user: User = Depends(require_roles(["Admin", "Manager"]))):
