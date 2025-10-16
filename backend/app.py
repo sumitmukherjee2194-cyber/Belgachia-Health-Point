@@ -126,7 +126,8 @@ def _compute_generic_summary(df: pd.DataFrame) -> Dict[str, Any]:
         'records': len(df),
         'columns': list(df.columns),
     }
-    for candidate in ['Amount', 'amount', 'Total', 'total', 'Net', 'net_amount']:
+    # totals
+    for candidate in ['Amount', 'amount', 'Total', 'total', 'Net', 'net_amount', 'BillAmount']:
         if candidate in df.columns:
             try:
                 summary['total_amount'] = float(pd.to_numeric(df[candidate], errors='coerce').fillna(0).sum())
@@ -141,6 +142,87 @@ def _compute_generic_summary(df: pd.DataFrame) -> Dict[str, Any]:
             except Exception:
                 pass
     return summary
+
+def _first_present(names: List[str], df: pd.DataFrame) -> Optional[str]:
+    for n in names:
+        if n in df.columns:
+            return n
+    return None
+
+def _detect_anomalies(df: pd.DataFrame) -> Dict[str, Any]:
+    anomalies: List[str] = []
+    suggestions: List[str] = []
+
+    amount_col = _first_present(['Amount','amount','Total','total','Net','net_amount','BillAmount'], df)
+    tax_col = _first_present(['GST','gst','Tax','tax'], df)
+    qty_col = _first_present(['Qty','Quantity','quantity','qty'], df)
+    id_col = _first_present(['InvoiceNo','Invoice','BillNo','Bill No','bill_no','Voucher No','VoucherNo'], df)
+
+    # Missing critical columns
+    required_any = [amount_col, id_col]
+    if any(v is None for v in required_any):
+        missing = []
+        if amount_col is None: missing.append('Amount/Total')
+        if id_col is None: missing.append('Invoice/Bill number')
+        anomalies.append(f"Missing expected columns: {', '.join(missing)}")
+        suggestions.append('Map Marg CSV headers to expected names or configure column mapping.')
+
+    # Negative or zero amounts
+    if amount_col is not None:
+        try:
+            amounts = pd.to_numeric(df[amount_col], errors='coerce')
+            neg_rows = df[amounts < 0]
+            zero_rows = df[amounts == 0]
+            if len(neg_rows) > 0:
+                anomalies.append(f"{len(neg_rows)} rows have negative {amount_col}.")
+                suggestions.append('Verify returns/credit notes are encoded correctly. Review sign conventions.')
+            if len(zero_rows) > 0:
+                anomalies.append(f"{len(zero_rows)} rows have zero {amount_col}.")
+                suggestions.append('Confirm whether zero-billed entries are valid (e.g., freebies).')
+            # Simple outlier detection via z-score
+            series = amounts.fillna(0)
+            if series.std(ddof=0) > 0:
+                z = (series - series.mean()) / (series.std(ddof=0))
+                outliers = df[abs(z) > 4]
+                if len(outliers) > 0:
+                    anomalies.append(f"{len(outliers)} potential outliers detected in {amount_col} (|z|>4).")
+                    suggestions.append('Audit unusually high/low bill amounts; check data entry and units.')
+        except Exception:
+            pass
+
+    # Tax without amount or vice versa
+    if tax_col is not None and amount_col is not None:
+        try:
+            tax = pd.to_numeric(df[tax_col], errors='coerce').fillna(0)
+            amt = pd.to_numeric(df[amount_col], errors='coerce').fillna(0)
+            suspicious = df[(tax > 0) & (amt == 0)]
+            if len(suspicious) > 0:
+                anomalies.append(f"{len(suspicious)} rows have tax without amount.")
+                suggestions.append('Recalculate GST base for those rows; possible column misalignment.')
+        except Exception:
+            pass
+
+    # Duplicate invoice IDs
+    if id_col is not None:
+        try:
+            dups = df[df[id_col].duplicated(keep=False)]
+            if len(dups) > 0:
+                anomalies.append(f"{dups[id_col].nunique()} duplicate bill numbers covering {len(dups)} rows.")
+                suggestions.append('Deduplicate or merge duplicate bills; ensure unique invoice numbers per sale.')
+        except Exception:
+            pass
+
+    # Quantity sanity
+    if qty_col is not None:
+        try:
+            qty = pd.to_numeric(df[qty_col], errors='coerce').fillna(0)
+            if (qty < 0).any():
+                anomalies.append('Negative quantities detected.')
+                suggestions.append('Check returns workflow and negative stock entries.')
+        except Exception:
+            pass
+
+    return { 'anomalies': anomalies, 'suggestions': suggestions }
 
 @app.post('/upload-csv')
 async def upload_csv(
@@ -160,7 +242,24 @@ async def upload_csv(
     global _last_upload_path
     _last_upload_path = save_path
     summary = _compute_generic_summary(df)
-    return {'status': 'success', 'records_uploaded': len(df), 'data_type': data_type, 'file_path': save_path, 'summary': summary}
+    anomalies = _detect_anomalies(df)
+    # Optionally call AI to summarize anomalies
+    ai_text = None
+    prompt = None
+    try:
+        prompt = f"Summarize these billing data anomalies and propose 3 fixes: {anomalies}"
+        ai_text = _ai_insight_with_openai(prompt)
+    except Exception:
+        ai_text = None
+    return {
+        'status': 'success',
+        'records_uploaded': len(df),
+        'data_type': data_type,
+        'file_path': save_path,
+        'summary': summary,
+        'anomalies': anomalies,
+        'ai_summary': ai_text
+    }
 
 @app.get('/sync-marg-db')
 async def sync_marg_db(connection_string: str, table_name: str, user: User = Depends(require_roles(["Admin", "Manager"]))):
@@ -229,7 +328,28 @@ async def analytics_summary(user: User = Depends(require_roles(["Admin", "Manage
         summary['avg_amount'] = None
         if 'total_amount' in summary and summary['records']:
             summary['avg_amount'] = round(summary['total_amount'] / max(summary['records'], 1), 2)
-        return {'status': 'ok', 'summary': summary, 'last_upload_path': _last_upload_path}
+        # Manager-oriented KPIs
+        kpis: Dict[str, Any] = {}
+        amount_col = _first_present(['Amount','amount','Total','total','Net','net_amount','BillAmount'], df)
+        date_col = _first_present(['Date','date','BillDate','bill_date','Voucher Date'], df)
+        item_col = _first_present(['Item','Item Name','item_name','Product','Medicine'], df)
+
+        if amount_col is not None:
+            series = pd.to_numeric(df[amount_col], errors='coerce').fillna(0)
+            kpis['p95_amount'] = float(series.quantile(0.95))
+            kpis['p50_amount'] = float(series.quantile(0.50))
+            kpis['num_large_bills_10k'] = int((series >= 10000).sum())
+
+        top_items: List[Dict[str, Any]] = []
+        if item_col is not None and amount_col is not None:
+            try:
+                grouped = df.groupby(item_col)[amount_col].apply(lambda s: pd.to_numeric(s, errors='coerce').fillna(0).sum())
+                top = grouped.sort_values(ascending=False).head(5)
+                top_items = [{ 'name': str(k), 'amount': float(v) } for k, v in top.items()]
+            except Exception:
+                pass
+
+        return {'status': 'ok', 'summary': summary, 'last_upload_path': _last_upload_path, 'kpis': kpis, 'top_items': top_items}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f'Failed to read last upload: {e}')
 

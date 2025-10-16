@@ -17,6 +17,7 @@ function Dashboard() {
   const [dataType, setDataType] = useState('billing');
   const [uploadResult, setUploadResult] = useState(null);
   const [analytics, setAnalytics] = useState(null);
+  const [anomalySummary, setAnomalySummary] = useState(null);
 
   const authHeaders = () => token ? { 'Authorization': `Bearer ${token}` } : {};
 
@@ -87,6 +88,7 @@ function Dashboard() {
     });
     const data = await res.json();
     setUploadResult(data);
+    setAnomalySummary(data.ai_summary || null);
     await fetchAnalytics();
   };
 
@@ -125,6 +127,8 @@ function Dashboard() {
   const totalAmount = analytics?.summary?.total_amount ?? 0;
   const totalRecords = analytics?.summary?.records ?? 0;
   const avgAmount = analytics?.summary?.avg_amount ?? 0;
+  const kpis = analytics?.kpis || {};
+  const topItems = analytics?.top_items || [];
 
   return (
     <div className='p-6 bg-gray-100 min-h-screen'>
@@ -142,6 +146,12 @@ function Dashboard() {
         <div className='bg-white p-4 rounded-2xl shadow'><h2 className='text-lg font-semibold text-gray-700'>Avg Amount</h2><p className='text-2xl font-bold text-yellow-600'>₹{Number(avgAmount).toLocaleString('en-IN')}</p></div>
       </div>
 
+      <div className='grid grid-cols-1 md:grid-cols-3 gap-4 mb-6'>
+        <div className='bg-white p-4 rounded-2xl shadow'><h2 className='text-lg font-semibold text-gray-700'>P95 Bill</h2><p className='text-2xl font-bold text-purple-700'>₹{Number(kpis.p95_amount || 0).toLocaleString('en-IN')}</p></div>
+        <div className='bg-white p-4 rounded-2xl shadow'><h2 className='text-lg font-semibold text-gray-700'>Median Bill</h2><p className='text-2xl font-bold text-indigo-700'>₹{Number(kpis.p50_amount || 0).toLocaleString('en-IN')}</p></div>
+        <div className='bg-white p-4 rounded-2xl shadow'><h2 className='text-lg font-semibold text-gray-700'>Bills ≥ ₹10,000</h2><p className='text-2xl font-bold text-rose-700'>{Number(kpis.num_large_bills_10k || 0)}</p></div>
+      </div>
+
       <div className='bg-white p-4 rounded-2xl shadow mb-6'>
         <h2 className='font-semibold text-gray-800 mb-3'>Bulk CSV Upload</h2>
         <div className='flex flex-col md:flex-row gap-3 items-start md:items-center'>
@@ -151,6 +161,25 @@ function Dashboard() {
         </div>
         {uploadResult && (
           <p className='text-sm text-gray-600 mt-2'>Uploaded {uploadResult.records_uploaded} records to {uploadResult.data_type}.</p>
+        )}
+        {uploadResult?.anomalies && (
+          <div className='mt-3'>
+            <h3 className='font-semibold text-gray-700'>Detected Anomalies</h3>
+            <ul className='list-disc ml-6 text-gray-700'>
+              {(uploadResult.anomalies.anomalies || []).map((a, i) => <li key={i}>{a}</li>)}
+            </ul>
+            {(uploadResult.anomalies.suggestions || []).length > 0 && (
+              <>
+                <h3 className='font-semibold text-gray-700 mt-2'>Suggested Fixes</h3>
+                <ul className='list-disc ml-6 text-gray-700'>
+                  {uploadResult.anomalies.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+                </ul>
+              </>
+            )}
+            {anomalySummary && (
+              <p className='text-gray-700 mt-2 whitespace-pre-wrap'>{anomalySummary}</p>
+            )}
+          </div>
         )}
       </div>
 
@@ -171,8 +200,17 @@ function Dashboard() {
       </div>
 
       {(role === 'Admin' || role === 'Manager') && (
-        <div className='mt-6 text-sm text-gray-600'>
-          <p>Admin/Manager actions available via API: sync Marg DB, auto fix, generate reports.</p>
+        <div className='mt-6 grid grid-cols-1 md:grid-cols-2 gap-4'>
+          <div className='bg-white p-4 rounded-2xl shadow'>
+            <h2 className='font-semibold text-gray-800 mb-2'>Top Items</h2>
+            <ul className='list-disc ml-6 text-gray-700'>
+              {topItems.map((t, i) => <li key={i}>{t.name} – ₹{Number(t.amount).toLocaleString('en-IN')}</li>)}
+            </ul>
+          </div>
+          <div className='bg-white p-4 rounded-2xl shadow'>
+            <h2 className='font-semibold text-gray-800 mb-2'>Admin/Manager Notes</h2>
+            <p className='text-gray-600'>Use API: sync Marg DB, auto-fix GST mismatches, generate reports.</p>
+          </div>
         </div>
       )}
     </div>
